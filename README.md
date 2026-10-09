@@ -53,3 +53,47 @@ All money amounts are integer minor units (for example, cents/poisha); the curre
 ## Development
 
 Install dependencies with `npm install`. Run `npm run typecheck` to check the API and component TypeScript.
+
+## Modular wallet services
+
+The codebase now includes reusable service functions in `server/wallet/`:
+
+- `ensureWalletAccount(pool, userId, currency)` creates a zero-balance account without overwriting an existing one.
+- `deposit(pool, input)`, `debit(pool, input)`, and `credit(pool, input)` write a matching balance change and ledger row in one transaction. `debit` records a negative amount; `credit` records a positive amount.
+- `postWalletTransaction(pool, input)` is the lower-level API for transaction types including `withdrawal` and `adjustment`. Every request requires a unique idempotency key and a reference.
+- `calculateSettlementPayout(stakeMinor, decimalOdds, outcome)` uses fixed-point BigInt arithmetic and returns total payout in minor units: won returns stake × decimal odds, lost returns zero, and void returns the stake.
+- `settleBet(pool, input)` performs the bet settlement transaction, including wallet credit/refund, ledger row, settlement record, and bet status update.
+
+Example:
+
+```ts
+import { db } from "../db";
+import { ensureWalletAccount, deposit, debit } from "./service";
+import { settleBet } from "./settlement";
+
+await ensureWalletAccount(db, userId, "BDT");
+
+// Only after your payment provider confirms the deposit:
+await deposit(db, {
+  userId, amountMinor: 10000n, currency: "BDT",
+  referenceType: "payment", referenceId: providerPaymentId,
+  idempotencyKey: `deposit:${providerPaymentId}`,
+});
+
+// In the same trusted bet-placement workflow, debit the stake before creating
+// the pending bet; production bet placement should combine both writes atomically.
+await debit(db, {
+  userId, amountMinor: 500n, currency: "BDT",
+  referenceType: "bet", referenceId: betId,
+  idempotencyKey: `wager-debit:${betId}`,
+});
+
+// Call only from a trusted result-grading worker:
+const result = await settleBet(db, {
+  betId, outcome: "won", idempotencyKey: `settle:${betId}`,
+});
+```
+
+`prisma/schema.prisma` is an optional Prisma model mapping the existing migration tables. The application currently uses `pg` at runtime, so adding the schema does not change the Railway database or install Prisma dependencies. Use `DATABASE_URL` for Railway PostgreSQL. Run the existing SQL migration once with a migration/admin role; do not use `prisma db push` against a live database without reviewing the migration plan.
+
+These helpers are backend-only. Never call deposit/credit based on browser input, and never settle using an outcome supplied by a browser. Payment verification, wallet provisioning, bet creation, and result-feed trust remain responsibilities of their respective backend integrations.
