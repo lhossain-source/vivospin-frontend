@@ -132,8 +132,8 @@ export default async function handler(req: any, res: any) {
     client.release();
     client = null;
 
-    const apiKey = process.env.THE_ODDS_API_KEY;
-    if (!apiKey) throw fail(503, "Live odds verification is not configured.");
+    const apiKey = process.env.THE_ODDS_API_KEY || process.env.ODDS_API_KEY;
+    if (!apiKey) throw fail(503, "Live odds verification is unavailable: configure THE_ODDS_API_KEY or ODDS_API_KEY with a valid provider key. No bet was placed.");
     const eventsById = new Map<string, any>();
     for (const sport of new Set(selections.map(s => s.sport))) {
       for (const event of await currentEvents(sport, apiKey)) eventsById.set(sport + ":" + event.id, event);
