@@ -1,36 +1,55 @@
-# VivoSpin Frontend — Live Sports Odds
+# VivoSpin — Live Odds, Wallet Ledger & Settlement API
 
-React + TypeScript odds board using The Odds API through a server-side proxy.
+This repository contains a React/TypeScript odds board, a server-side proxy for The Odds API, and a PostgreSQL-backed wallet ledger/settlement API scaffold.
 
-## Features
+## Live odds
 
-- Live soccer fixtures and decimal odds from The Odds API.
-- 1X2 (provider `h2h`) and Over/Under (provider `totals`) markets when available.
-- Best available price across returned bookmakers for each outcome.
-- Competition selector, loading/error/empty states, and automatic refresh every 60 seconds.
-- Bet Slip stays connected to the live feed and refreshes selected prices when the same selection remains available.
-- Responsive UI with no provider API key exposed to browser code.
+- `api/odds.ts` proxies The Odds API without exposing the provider key in browser code.
+- `src/OddsBoard.tsx` loads live soccer odds, refreshes every 60 seconds, and keeps selections synchronized with the Bet Slip.
+- The provider's `h2h` market is normalized to 1X2; `totals` is normalized to Over/Under where supplied.
 
-## Files
+Configure `THE_ODDS_API_KEY` on the server. Provider coverage and quota determine which matches and markets are available.
 
-- `api/odds.ts` — Vercel serverless proxy to The Odds API.
-- `src/OddsBoard.tsx` — live odds UI and Bet Slip state.
-- `src/odds-board.css` — responsive styling.
-- `.env.example` — environment variable template.
+## Wallet API
 
-## Configure the provider
+### `GET /api/wallet`
 
-1. Create an API key at [The Odds API](https://the-odds-api.com/).
-2. In your deployment provider's server-side environment settings, add `THE_ODDS_API_KEY` with your key. For local development, copy `.env.example` to `.env.local` and fill in the key.
-3. Deploy the project to Vercel (the `api/odds.ts` handler uses Vercel's Node serverless function convention), or adapt the handler to your existing backend runtime.
-4. Ensure the frontend and `/api/odds` endpoint are served from the same origin.
-5. Run your React app as usual. The board calls `GET /api/odds?sport=soccer_epl` and never receives the API key.
+Requires `Authorization: Bearer <user-access-token>`. The token must be an HS256 JWT whose `sub` is the user's UUID. If configured, `AUTH_JWT_ISSUER` must match the JWT issuer.
 
-Supported competition keys are allowlisted in `api/odds.ts`. The server defaults to the UK bookmaker region; adjust the `regions` query or server default to match your provider plan and intended market.
+Returns the authenticated user's wallet balance and latest 100 ledger entries. It never accepts a user ID from the request, and it does not let a client directly credit or debit a wallet.
 
-## Important limitations
+### `POST /api/settlement`
 
-- Real odds require a valid provider key, available quota, and provider coverage for the selected competition/markets. Some fixtures may have no odds or only one of the requested markets.
-- The feed returns bookmaker prices, not an official wager acceptance endpoint. Prices can change between refreshes and placement.
-- Bet Slip is display-only: it estimates combined decimal odds and return but does not place bets or connect to a sportsbook account.
-- This is an integration scaffold. Configure your actual deployment, API key, and provider plan before expecting live data in production.
+Internal service endpoint. Requires `Authorization: Bearer <SETTLEMENT_SERVICE_TOKEN>` and an `Idempotency-Key` header (8–128 characters).
+
+Example body:
+
+```json
+{ "betId": "00000000-0000-4000-8000-000000000000", "outcome": "won" }
+```
+
+`outcome` must be `won`, `lost`, or `void`. The referenced bet must already exist in `bets`, be pending, have a matching wallet account, and have a matching `wager_debit` ledger entry. Settlement locks the bet and wallet row, writes an idempotent settlement record, credits the payout/refund when applicable, writes a ledger entry, and updates the bet in one database transaction. A lost bet creates a settlement record but no wallet balance movement.
+
+This endpoint is intended to be called by a trusted settlement worker after independently grading an event. It is not intended for the browser.
+
+## Database setup
+
+1. Provision PostgreSQL.
+2. Run `db/migrations/001_wallet_ledger.sql` using a migration/admin role.
+3. Set the environment variables in `.env.example` in your server/deployment environment.
+4. Ensure your authentication service issues the expected HS256 user tokens and your trusted settlement worker knows the service token.
+5. Use your existing bet-placement/payment integration to create wallet accounts, debit stakes, insert the matching immutable `wager_debit` ledger row, and create pending bets atomically before calling settlement.
+
+All money amounts are integer minor units (for example, cents/poisha); the currency is stored per account/bet. Do not use browser-provided balances, odds, payouts, or settlement outcomes as trusted input.
+
+## Important production requirements
+
+- This repository does **not** implement deposits, withdrawals, bet placement, payment-provider verification, account provisioning, or a settlement-result feed.
+- No production authentication/database/provider secrets are included. The APIs will not operate until the environment is configured and the migration is applied.
+- The settlement API is a backend integration scaffold, not a complete regulated-money product. Add authorization/audit controls, monitoring, backups, reconciliation, rate limits, and independent security review before real-money use.
+- The Bet Slip remains display-only and does not submit wagers.
+- The Vercel-style `api/*.ts` handlers need to be deployed on a compatible Node serverless platform. Actual deployment requires access to the hosting project and configured secrets/database.
+
+## Development
+
+Install dependencies with `npm install`. Run `npm run typecheck` to check the API and component TypeScript.
