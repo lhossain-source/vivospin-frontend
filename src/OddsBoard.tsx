@@ -241,6 +241,9 @@ function BetSlip({
           <button type="button" className="text-button" onClick={onClear}>Clear all</button>
         )}
       </header>
+      {placementError && <p className="placement-error" role="alert">{placementError}</p>}
+      {placementMessage && <p className="placement-success" role="status">{placementMessage}</p>}
+      {walletBalance && <p className="wallet-balance">Wallet balance: {(Number(walletBalance.balanceMinor) / 100).toFixed(2)} {walletBalance.currency}</p>}
 
       {selections.length === 0 ? (
         <p className="empty-slip">Select live odds from a match to see them here.</p>
@@ -275,9 +278,6 @@ function BetSlip({
             <input id="access-token" type="password" autoComplete="off" value={accessToken}
               onChange={(event) => setAccessToken(event.target.value)} placeholder="Paste your signed-in account token" />
             <p className="demo-note">The server verifies your account and current odds, then debits the stake atomically. Do not place a wager unless you are legally permitted to do so.</p>
-            {placementError && <p className="placement-error" role="alert">{placementError}</p>}
-            {placementMessage && <p className="placement-success" role="status">{placementMessage}</p>}
-            {walletBalance && <p className="wallet-balance">Wallet balance: {(Number(walletBalance.balanceMinor) / 100).toFixed(2)} {walletBalance.currency}</p>}
             <button type="button" className="place-bet-button" onClick={placeBet}
               disabled={placing || selections.length === 0 || !validStake}>
               {placing ? "Verifying & placing…" : `Place bet · ${stakeValue.toFixed(2)}`}
