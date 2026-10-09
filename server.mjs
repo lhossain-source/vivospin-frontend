@@ -17,6 +17,16 @@ app.all("/api/odds", (req, res) => Promise.resolve(oddsHandler(req, res)).catch(
   if (!res.headersSent) res.status(500).json({ error: "Internal server error" });
 }));
 
+app.all("/api/bets/place", async (req, res) => {
+  try {
+    const { default: handler } = await import("./api/bets/place.ts");
+    await handler(req, res);
+  } catch (error) {
+    console.error("bet placement API unavailable", error);
+    if (!res.headersSent) res.status(500).json({ error: "Bet placement API unavailable; check server and database configuration." });
+  }
+});
+
 app.all("/api/wallet", async (req, res) => {
   try {
     const { default: handler } = await import("./api/wallet.ts");
