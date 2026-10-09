@@ -122,10 +122,26 @@ export default async function handler(req: any, res: any) {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  const apiKey = process.env.THE_ODDS_API_KEY || process.env.ODDS_API_KEY;
+  // Railway variable values can be empty/whitespace or may have been added after
+  // the previous deployment. Normalize them before deciding the provider is unconfigured.
+  const apiKey = [
+    process.env.THE_ODDS_API_KEY,
+    process.env.ODDS_API_KEY,
+    process.env.ODDS_API_KEY_V4,
+  ].map((value) => value?.trim()).find((value) => Boolean(value));
+
   if (!apiKey) {
+    const keyPresence = {
+      THE_ODDS_API_KEY: Boolean(process.env.THE_ODDS_API_KEY?.trim()),
+      ODDS_API_KEY: Boolean(process.env.ODDS_API_KEY?.trim()),
+      ODDS_API_KEY_V4: Boolean(process.env.ODDS_API_KEY_V4?.trim()),
+    };
+    console.error("Live odds API key missing at runtime", keyPresence);
     return res.status(503).json({
-      error: "Live odds are not configured. Set THE_ODDS_API_KEY or ODDS_API_KEY in your server environment.",
+      error: "Odds API key is not available to this running backend process.",
+      code: "ODDS_API_KEY_MISSING_AT_RUNTIME",
+      configuredKeys: keyPresence,
+      hint: "Confirm the variable is set on this backend service's production environment, then redeploy/restart the service.",
     });
   }
 
