@@ -1,4 +1,4 @@
-import { db } from "./_lib/db";
+import { db } from "../server/db";
 import { requireUser } from "./_lib/auth";
 
 export default async function handler(req: any, res: any) {
