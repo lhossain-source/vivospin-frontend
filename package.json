@@ -2,21 +2,29 @@
   "name": "vivospin-frontend",
   "private": true,
   "type": "module",
+  "packageManager": "npm@10.8.2",
   "engines": { "node": ">=20" },
   "dependencies": {
+    "express": "^5.1.0",
     "jose": "^6.1.0",
     "pg": "^8.16.3",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"
   },
   "devDependencies": {
+    "@types/express": "^5.0.3",
     "@types/node": "^22.15.0",
     "@types/pg": "^8.15.5",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.7",
-    "typescript": "^5.8.3"
+    "@vitejs/plugin-react": "^4.7.0",
+    "tsx": "^4.20.5",
+    "typescript": "^5.8.3",
+    "vite": "^6.3.5"
   },
   "scripts": {
+    "build": "vite build",
+    "start": "tsx server.mjs",
     "typecheck": "tsc --noEmit"
   }
 }
