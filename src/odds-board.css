@@ -44,3 +44,23 @@ button, input { font: inherit; }
 .demo-note { margin: 0; color: #9ba9ba; font-size: 11px; line-height: 1.5; }
 @media (max-width: 850px) { .odds-board { grid-template-columns: minmax(0, 1fr); padding: 14px; } .bet-slip { position: static; } }
 @media (max-width: 420px) { .match-card, .bet-slip { padding: 12px; } .odds-button { flex-direction: column; padding: 11px 5px; } .odds-grid-ou .odds-button { flex-direction: row; flex-wrap: wrap; } }
+
+
+.odds-board-title { display: flex; justify-content: space-between; align-items: end; gap: 18px; margin-bottom: 16px; }
+.odds-board-title h1 { margin: 0; font-size: 25px; }
+.odds-subtitle { margin: 6px 0 0; color: #9eacbf; font-size: 12px; }
+.sport-select-label { display: grid; gap: 6px; min-width: 180px; color: #aab7c8; font-size: 12px; }
+.sport-select-label select { width: 100%; padding: 10px 12px; border: 1px solid #40516a; border-radius: 7px; background: #111925; color: #e9edf3; }
+.live-status { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 0 0 16px; color: #b8c5d6; font-size: 12px; line-height: 1.5; }
+.status-dot { width: 8px; height: 8px; flex: 0 0 auto; border-radius: 50%; background: #4be39a; }
+.status-dot.is-loading { background: #f4c76b; }
+.status-dot.is-error { background: #ff7979; }
+.last-fetched { margin-left: auto; color: #8e9db1; }
+.odds-updated { margin: 12px 0 0; color: #8797ab; font-size: 10px; }
+.odds-message { padding: 18px; border: 1px solid #485568; border-radius: 10px; background: #202a38; color: #c6d0de; font-size: 13px; line-height: 1.6; }
+.odds-message p { margin: 8px 0; }
+@media (max-width: 600px) {
+  .odds-board-title { align-items: stretch; flex-direction: column; }
+  .sport-select-label { min-width: 0; }
+  .last-fetched { margin-left: 0; }
+}
