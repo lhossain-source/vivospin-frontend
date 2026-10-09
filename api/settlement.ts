@@ -82,8 +82,9 @@ export default async function handler(req: any, res: any) {
         `SELECT 1 FROM wallet_ledger
          WHERE user_id = $1 AND entry_type = 'wager_debit'
            AND reference_type = 'bet' AND reference_id = $2
+           AND amount_minor = -$3::bigint AND currency = $4
          LIMIT 1`,
-        [bet.user_id, betId],
+        [bet.user_id, betId, bet.stake_minor, bet.currency],
       );
       if (debit.rowCount === 0) {
         await client.query("ROLLBACK");
