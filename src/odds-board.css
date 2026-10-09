@@ -64,3 +64,11 @@ button, input { font: inherit; }
   .sport-select-label { min-width: 0; }
   .last-fetched { margin-left: 0; }
 }
+
+.placement-error, .placement-success, .wallet-balance { margin: 0; padding: 10px; border-radius: 7px; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.placement-error { border: 1px solid #9b4545; background: #3a2025; color: #ffc1c1; }
+.placement-success { border: 1px solid #287b59; background: #153d2f; color: #a7f3d0; }
+.wallet-balance { border: 1px solid #40516a; background: #111925; color: #dce8f8; }
+.place-bet-button { width: 100%; padding: 12px 14px; border: 1px solid #36c985; border-radius: 8px; background: #168452; color: #fff; font-weight: 700; cursor: pointer; }
+.place-bet-button:hover:not(:disabled) { background: #1a9a60; }
+.place-bet-button:disabled { opacity: .55; cursor: not-allowed; }
