@@ -1,5 +1,5 @@
 import { db } from "../server/db";
-import { requireUser } from "./_lib/auth";
+import { requireUser } from "../server/auth";
 
 export default async function handler(req: any, res: any) {
   res.setHeader("Cache-Control", "no-store");
