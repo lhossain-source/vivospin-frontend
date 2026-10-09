@@ -176,6 +176,9 @@ export function debit(pool: Pool, input: Omit<WalletTransactionInput, "entryType
 export function credit(pool: Pool, input: Omit<WalletTransactionInput, "entryType">) {
   return postWalletTransaction(pool, { ...input, entryType: "settlement_credit", amountMinor: abs(input.amountMinor) });
 }
+export function withdraw(pool: Pool, input: Omit<WalletTransactionInput, "entryType">) {
+  return postWalletTransaction(pool, { ...input, entryType: "withdrawal", amountMinor: -abs(input.amountMinor) });
+}
 function abs(value: bigint): bigint {
   return value < 0n ? -value : value;
 }
