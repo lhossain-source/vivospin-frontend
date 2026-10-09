@@ -122,10 +122,10 @@ export default async function handler(req: any, res: any) {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  const apiKey = process.env.THE_ODDS_API_KEY;
+  const apiKey = process.env.THE_ODDS_API_KEY || process.env.ODDS_API_KEY;
   if (!apiKey) {
     return res.status(503).json({
-      error: "Live odds are not configured. Set THE_ODDS_API_KEY in your server environment.",
+      error: "Live odds are not configured. Set THE_ODDS_API_KEY or ODDS_API_KEY in your server environment.",
     });
   }
 
@@ -146,7 +146,7 @@ export default async function handler(req: any, res: any) {
   try {
     const upstream = await fetch(
       `https://api.the-odds-api.com/v4/sports/${sport}/odds?${params.toString()}`,
-      { headers: { Accept: "application/json" } },
+      { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(8000) },
     );
 
     if (!upstream.ok) {
