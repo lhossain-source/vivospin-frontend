@@ -1,4 +1,5 @@
 import { jwtVerify } from "jose";
+import { timingSafeEqual } from "node:crypto";
 
 export async function requireUser(req: any): Promise<string> {
   const header = req.headers?.authorization;
@@ -38,7 +39,6 @@ export function requireSettlementService(req: any): void {
 
   const actual = header.slice("Bearer ".length);
   // Constant-time comparison for same-length tokens.
-  const { timingSafeEqual } = require("node:crypto") as typeof import("node:crypto");
   const a = Buffer.from(actual);
   const b = Buffer.from(expected);
   if (a.length !== b.length || !timingSafeEqual(a, b)) {
