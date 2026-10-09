@@ -7,7 +7,7 @@ export async function requireUser(req: any): Promise<string> {
     throw Object.assign(new Error("Authentication required."), { statusCode: 401 });
   }
 
-  const secretText = process.env.AUTH_JWT_SECRET;
+  const secretText = process.env.AUTH_JWT_SECRET || process.env.JWT_SECRET;
   if (!secretText || new TextEncoder().encode(secretText).byteLength < 32) {
     throw Object.assign(new Error("Authentication is not configured."), { statusCode: 503 });
   }
