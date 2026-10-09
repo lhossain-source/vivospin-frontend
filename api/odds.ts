@@ -48,8 +48,8 @@ function normalizeEvent(event: ApiEvent): NormalizedMatch {
 
   for (const bookmaker of event.bookmakers ?? []) {
     for (const market of bookmaker.markets ?? []) {
-      if (market.last_update && (!lastUpdated || market.last_update > lastUpdated)) {
-        lastUpdated = market.last_update;
+      if (bookmaker.last_update && (!lastUpdated || bookmaker.last_update > lastUpdated)) {
+        lastUpdated = bookmaker.last_update;
       }
       for (const outcome of market.outcomes ?? []) {
         if (!Number.isFinite(outcome.price) || outcome.price <= 1) continue;
