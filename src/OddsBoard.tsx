@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import "./odds-board.css";
 
 type Outcome = "1" | "X" | "2" | "OVER" | "UNDER";
@@ -179,6 +179,7 @@ function BetSlip({
   const [placementMessage, setPlacementMessage] = useState("");
   const [placementError, setPlacementError] = useState("");
   const [walletBalance, setWalletBalance] = useState<{ balanceMinor: string; currency: string } | null>(null);
+  const idempotencyAttempt = useRef<{ fingerprint: string; key: string } | null>(null);
   const stakeValue = Number(stake);
   const validStake = stake.trim() !== "" && Number.isFinite(stakeValue) && stakeValue > 0;
   const combinedOdds = selections.reduce((total, item) => total * item.odds, 1);
@@ -198,32 +199,38 @@ function BetSlip({
     setPlacing(true);
     try {
       sessionStorage.setItem("vivospin_access_token", accessToken.trim());
+      const requestBody = {
+        stake: stakeValue.toFixed(2),
+        selections: selections.map((selection) => ({
+          matchId: selection.matchId,
+          matchName: selection.matchName,
+          marketId: selection.marketId,
+          marketType: selection.marketType,
+          outcome: selection.outcome,
+          outcomeLabel: selection.outcomeLabel,
+          odds: selection.odds,
+          sport: selection.sport,
+        })),
+      };
+      const fingerprint = JSON.stringify(requestBody);
+      if (!idempotencyAttempt.current || idempotencyAttempt.current.fingerprint !== fingerprint) {
+        idempotencyAttempt.current = { fingerprint, key: crypto.randomUUID() };
+      }
       const response = await fetch("/api/bets/place", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Accept: "application/json",
           Authorization: `Bearer ${accessToken.trim()}`,
-          "Idempotency-Key": crypto.randomUUID(),
+          "Idempotency-Key": idempotencyAttempt.current.key,
         },
-        body: JSON.stringify({
-          stake: stakeValue.toFixed(2),
-          selections: selections.map((selection) => ({
-            matchId: selection.matchId,
-            matchName: selection.matchName,
-            marketId: selection.marketId,
-            marketType: selection.marketType,
-            outcome: selection.outcome,
-            outcomeLabel: selection.outcomeLabel,
-            odds: selection.odds,
-            sport: selection.sport,
-          })),
-        }),
+        body: JSON.stringify(requestBody),
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload?.error || `Bet placement failed (HTTP ${response.status}).`);
       if (payload.wallet) setWalletBalance(payload.wallet);
       setPlacementMessage(`Bet accepted. Reference: ${payload.bet?.id ?? "confirmed"}. Wallet updated${payload.wallet ? `: ${(Number(payload.wallet.balanceMinor) / 100).toFixed(2)} ${payload.wallet.currency}` : ""}.`);
+      idempotencyAttempt.current = null;
       onClear();
     } catch (cause) {
       setPlacementError(cause instanceof Error ? cause.message : "Could not place bet.");
