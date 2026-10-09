@@ -11,5 +11,5 @@
     "esModuleInterop": true,
     "resolveJsonModule": true
   },
-  "include": ["api/**/*.ts", "src/**/*.tsx"]
+  "include": ["api/**/*.ts", "server/**/*.ts", "src/**/*.tsx"]
 }
