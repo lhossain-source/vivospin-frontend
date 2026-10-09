@@ -78,17 +78,30 @@ export default async function handler(req: any, res: any) {
         return res.status(409).json({ error: "Matching wallet account is missing." });
       }
 
-      const stake = BigInt(bet.stake_minor);
-      const payout = outcome === "won"
-        ? BigInt(Math.round(Number(stake) * Number(bet.decimal_odds)))
-        : outcome === "void" ? stake : 0n;
-      if (payout > BigInt(Number.MAX_SAFE_INTEGER)) {
+      const debit = await client.query(
+        `SELECT 1 FROM wallet_ledger
+         WHERE user_id = $1 AND entry_type = 'wager_debit'
+           AND reference_type = 'bet' AND reference_id = $2
+         LIMIT 1`,
+        [bet.user_id, betId],
+      );
+      if (debit.rowCount === 0) {
         await client.query("ROLLBACK");
-        return res.status(422).json({ error: "Payout exceeds supported safe calculation range." });
+        return res.status(409).json({ error: "Bet has no matching wallet debit ledger entry; refusing settlement." });
       }
 
+      const stake = BigInt(bet.stake_minor);
+      const oddsScaled = BigInt(Math.round(Number(bet.decimal_odds) * 10_000));
+      const payout = outcome === "won"
+        ? (stake * oddsScaled + 5_000n) / 10_000n
+        : outcome === "void" ? stake : 0n;
+      const maxBigInt = 9_223_372_036_854_775_807n;
       const balanceBefore = BigInt(walletResult.rows[0].balance_minor);
       const balanceAfter = balanceBefore + payout;
+      if (payout > maxBigInt || balanceAfter > maxBigInt) {
+        await client.query("ROLLBACK");
+        return res.status(422).json({ error: "Payout exceeds the supported database amount range." });
+      }
       const settlement = await client.query(
         `INSERT INTO settlement_transactions
            (bet_id, user_id, outcome, payout_minor, currency, idempotency_key)
