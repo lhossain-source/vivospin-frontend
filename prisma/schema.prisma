@@ -10,11 +10,11 @@ datasource db {
 }
 
 model WalletAccount {
-  userId      String   @id @default(dbgenerated()) @map("user_id") @db.Uuid
+  userId      String   @id @map("user_id") @db.Uuid
   currency    String   @db.Char(3)
   balanceMinor BigInt  @default(0) @map("balance_minor")
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt   DateTime @default(now()) @map("updated_at") @db.Timestamptz
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
   ledger      WalletLedger[]
   bets        Bet[]
   settlements SettlementTransaction[]
@@ -33,7 +33,7 @@ model WalletLedger {
   referenceId       String   @map("reference_id")
   idempotencyKey    String   @unique @map("idempotency_key")
   metadata          Json     @default("{}")
-  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   wallet            WalletAccount @relation(fields: [userId], references: [userId])
 
   @@index([userId, createdAt(sort: Desc), id(sort: Desc)])
@@ -51,8 +51,8 @@ model Bet {
   currency    String   @db.Char(3)
   status      String   @default("pending")
   payoutMinor BigInt   @default(0) @map("payout_minor")
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
-  settledAt   DateTime? @map("settled_at") @db.Timestamptz
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  settledAt   DateTime? @map("settled_at") @db.Timestamptz(6)
   wallet      WalletAccount @relation(fields: [userId], references: [userId])
   settlement  SettlementTransaction?
 
@@ -68,7 +68,7 @@ model SettlementTransaction {
   payoutMinor    BigInt   @map("payout_minor")
   currency       String   @db.Char(3)
   idempotencyKey String   @unique @map("idempotency_key")
-  settledAt      DateTime @default(now()) @map("settled_at") @db.Timestamptz
+  settledAt      DateTime @default(now()) @map("settled_at") @db.Timestamptz(6)
   bet            Bet @relation(fields: [betId], references: [id])
   wallet         WalletAccount @relation(fields: [userId], references: [userId])
 
