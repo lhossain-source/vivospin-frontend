@@ -7,6 +7,16 @@ const app = express();
 const here = path.dirname(fileURLToPath(import.meta.url));
 const port = Number(process.env.PORT || 8080);
 
+/* Safe startup diagnostic: never log secret values, only whether they are present. */
+console.info("Odds API runtime configuration", {
+  service: process.env.RAILWAY_SERVICE_NAME ?? "unknown",
+  environment: process.env.RAILWAY_ENVIRONMENT_NAME ?? "unknown",
+  deploymentId: process.env.RAILWAY_DEPLOYMENT_ID ?? "unknown",
+  oddsApiKeyPresent: Boolean(process.env.ODDS_API_KEY?.trim()),
+  theOddsApiKeyPresent: Boolean(process.env.THE_ODDS_API_KEY?.trim()),
+  oddsApiKeyV4Present: Boolean(process.env.ODDS_API_KEY_V4?.trim()),
+});
+
 app.disable("x-powered-by");
 app.use(express.json({ limit: "32kb" }));
 
