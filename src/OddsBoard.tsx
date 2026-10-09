@@ -53,6 +53,7 @@ export interface BetSelection {
   outcome: Outcome;
   outcomeLabel: string;
   odds: number;
+  sport: SportKey;
 }
 
 const SPORTS: { value: SportKey; label: string }[] = [
@@ -103,10 +104,12 @@ function OddsButton({
 
 function MatchCard({
   match,
+  sport,
   selections,
   onSelect,
 }: {
   match: Match;
+  sport: SportKey;
   selections: BetSelection[];
   onSelect: (selection: BetSelection) => void;
 }) {
@@ -145,6 +148,7 @@ function MatchCard({
                       outcome: option.outcome,
                       outcomeLabel: option.label,
                       odds: option.odds,
+                      sport,
                     })
                   }
                 />
@@ -170,10 +174,63 @@ function BetSlip({
   onClear: () => void;
 }) {
   const [stake, setStake] = useState("100");
+  const [accessToken, setAccessToken] = useState(() => sessionStorage.getItem("vivospin_access_token") ?? "");
+  const [placing, setPlacing] = useState(false);
+  const [placementMessage, setPlacementMessage] = useState("");
+  const [placementError, setPlacementError] = useState("");
+  const [walletBalance, setWalletBalance] = useState<{ balanceMinor: string; currency: string } | null>(null);
   const stakeValue = Number(stake);
   const validStake = stake.trim() !== "" && Number.isFinite(stakeValue) && stakeValue > 0;
   const combinedOdds = selections.reduce((total, item) => total * item.odds, 1);
   const potentialReturn = selections.length && validStake ? combinedOdds * stakeValue : 0;
+
+  async function placeBet() {
+    setPlacementMessage("");
+    setPlacementError("");
+    if (!accessToken.trim()) {
+      setPlacementError("Enter your account access token to authenticate this bet.");
+      return;
+    }
+    if (!selections.length || !validStake || stakeValue > 999999999.99 || Math.round(stakeValue * 100) / 100 !== stakeValue) {
+      setPlacementError("Enter a valid stake (0.01–999999999.99, up to 2 decimal places) and select at least one outcome.");
+      return;
+    }
+    setPlacing(true);
+    try {
+      sessionStorage.setItem("vivospin_access_token", accessToken.trim());
+      const response = await fetch("/api/bets/place", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+          Authorization: `Bearer ${accessToken.trim()}`,
+          "Idempotency-Key": crypto.randomUUID(),
+        },
+        body: JSON.stringify({
+          stake: stakeValue.toFixed(2),
+          selections: selections.map((selection) => ({
+            matchId: selection.matchId,
+            matchName: selection.matchName,
+            marketId: selection.marketId,
+            marketType: selection.marketType,
+            outcome: selection.outcome,
+            outcomeLabel: selection.outcomeLabel,
+            odds: selection.odds,
+            sport: selection.sport,
+          })),
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error || `Bet placement failed (HTTP ${response.status}).`);
+      if (payload.wallet) setWalletBalance(payload.wallet);
+      setPlacementMessage(`Bet accepted. Reference: ${payload.bet?.id ?? "confirmed"}. Wallet updated${payload.wallet ? `: ${(Number(payload.wallet.balanceMinor) / 100).toFixed(2)} ${payload.wallet.currency}` : ""}.`);
+      onClear();
+    } catch (cause) {
+      setPlacementError(cause instanceof Error ? cause.message : "Could not place bet.");
+    } finally {
+      setPlacing(false);
+    }
+  }
 
   return (
     <aside className="bet-slip">
@@ -209,12 +266,22 @@ function BetSlip({
             ))}
           </div>
           <div className="slip-summary">
-            <label htmlFor="stake">Demo stake</label>
+            <label htmlFor="stake">Stake amount</label>
             <input id="stake" type="number" min="0.01" step="any" value={stake}
               onChange={(event) => setStake(event.target.value)} />
             <div className="summary-row"><span>Combined odds</span><strong>{combinedOdds.toFixed(2)}</strong></div>
             <div className="summary-row"><span>Illustrative return</span><strong>{potentialReturn.toFixed(2)}</strong></div>
-            <p className="demo-note">Display-only estimate. No wager is submitted, and selected odds may change at the provider.</p>
+            <label htmlFor="access-token">Account access token</label>
+            <input id="access-token" type="password" autoComplete="off" value={accessToken}
+              onChange={(event) => setAccessToken(event.target.value)} placeholder="Paste your signed-in account token" />
+            <p className="demo-note">The server verifies your account and current odds, then debits the stake atomically. Do not place a wager unless you are legally permitted to do so.</p>
+            {placementError && <p className="placement-error" role="alert">{placementError}</p>}
+            {placementMessage && <p className="placement-success" role="status">{placementMessage}</p>}
+            {walletBalance && <p className="wallet-balance">Wallet balance: {(Number(walletBalance.balanceMinor) / 100).toFixed(2)} {walletBalance.currency}</p>}
+            <button type="button" className="place-bet-button" onClick={placeBet}
+              disabled={placing || selections.length === 0 || !validStake}>
+              {placing ? "Verifying & placing…" : `Place bet · ${stakeValue.toFixed(2)}`}
+            </button>
           </div>
         </>
       )}
@@ -331,7 +398,7 @@ export default function OddsBoard() {
           <div className="odds-message">No matches with supported odds markets were returned for this competition right now.</div>
         )}
         {matches.map((match) => (
-          <MatchCard key={match.id} match={match} selections={selections} onSelect={handleSelect} />
+          <MatchCard key={match.id} match={match} sport={sport} selections={selections} onSelect={handleSelect} />
         ))}
       </section>
       <BetSlip
