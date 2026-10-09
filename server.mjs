@@ -1,13 +1,26 @@
 import express from "express";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import oddsHandler from "./api/odds.ts";
 
 const app = express();
 const here = path.dirname(fileURLToPath(import.meta.url));
 const port = Number(process.env.PORT || 8080);
 
-/* Safe startup diagnostic: never log secret values, only whether they are present. */
+// Resolve common Odds API variable aliases before importing the route module.
+// Never log or hard-code the secret value.
+const oddsApiKey = [
+  process.env.ODDS_API_KEY,
+  process.env.THE_ODDS_API_KEY,
+  process.env.ODDS_API_KEY_V4,
+].map((value) => value?.trim()).find(Boolean);
+
+if (oddsApiKey) {
+  for (const name of ["ODDS_API_KEY", "THE_ODDS_API_KEY", "ODDS_API_KEY_V4"]) {
+    if (!process.env[name]?.trim()) process.env[name] = oddsApiKey;
+  }
+}
+
+/* Safe startup diagnostic: log presence only, never secret values. */
 console.info("Odds API runtime configuration", {
   service: process.env.RAILWAY_SERVICE_NAME ?? "unknown",
   environment: process.env.RAILWAY_ENVIRONMENT_NAME ?? "unknown",
@@ -16,6 +29,9 @@ console.info("Odds API runtime configuration", {
   theOddsApiKeyPresent: Boolean(process.env.THE_ODDS_API_KEY?.trim()),
   oddsApiKeyV4Present: Boolean(process.env.ODDS_API_KEY_V4?.trim()),
 });
+
+// Import after environment alias mapping so route-level config sees the resolved key.
+const { default: oddsHandler } = await import("./api/odds.ts");
 
 app.disable("x-powered-by");
 app.use(express.json({ limit: "32kb" }));
