@@ -92,6 +92,7 @@ function GameScreen({ game, go }: { game: Game; go: (path: string) => void }) {
   const [roundState, setRoundState] = useState<"idle" | "sending" | "started">("idle");
   const [message, setMessage] = useState("Connect the server game endpoint to enable wallet-backed play.");
   const [balance, setBalance] = useState<number | null>(null);
+  const [activeRound, setActiveRound] = useState<any>(null);
   const [isPortrait, setIsPortrait] = useState(() => window.matchMedia("(orientation: portrait)").matches);
   useEffect(() => {
     const updateOrientation = () => setIsPortrait(window.matchMedia("(orientation: portrait)").matches);
@@ -116,35 +117,81 @@ function GameScreen({ game, go }: { game: Game; go: (path: string) => void }) {
   const isSlots = game.kind === "slots";
   const multiplier = useMemo(() => (1 + selected.length * 0.22).toFixed(2), [selected.length]);
 
+  const isNativeGame = ["aviator", "mines", "sweet-bonanza"].includes(game.slug);
+  const nativeGame = game.slug as "aviator" | "mines" | "sweet-bonanza";
+  async function nativeRequest(action: string, extras: Record<string, unknown> = {}, idempotency = false) {
+    const headers: Record<string,string> = { "Content-Type": "application/json" };
+    if (idempotency) headers["Idempotency-Key"] = globalThis.crypto?.randomUUID?.() ?? ("vivo-" + Date.now() + "-" + Math.random().toString(36).slice(2));
+    const response = await fetch("/api/games/round", { method:"POST", headers, credentials:"same-origin", body:JSON.stringify({action,game:nativeGame,...extras}) });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || "The game server rejected this action.");
+    if (payload.round) setActiveRound(payload.round);
+    if (payload.wallet?.balanceMinor !== undefined) setBalance(Number(payload.wallet.balanceMinor)/100);
+    return payload;
+  }
   async function play(action: string) {
     if (!canSubmit) return;
-    setRoundState("sending");
-    setMessage("Sending request to the server…");
+    setRoundState("sending"); setMessage("Connecting securely to the game server…");
     try {
-      const response = await fetch("/api/bets/place", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "same-origin",
-        body: JSON.stringify({
-          gameId: game.slug,
-          action,
-          stake: stakeValue,
-          currency: "BDT",
-          options: { mines, rows, risk, targetMultiplier: Number(target), autoCashout: Number(autoCashout), selectedTiles: selected }
-        })
-      });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(payload.error || "The server did not accept this game action.");
-      if (typeof payload.balance === "number") setBalance(payload.balance);
-      if (typeof payload.multiplier === "number") setHistory(old => [payload.multiplier.toFixed(2) + "×", ...old].slice(0, 8));
+      if (isNativeGame) {
+        if (action === "cashout") {
+          if (!activeRound?.roundId) throw new Error("Start a round before cashing out.");
+          const result = await nativeRequest("cashout",{roundId:activeRound.roundId});
+          setMessage(result.round?.status==="lost"?"The crash occurred before cashout; the server settled the loss.":"Round settled by the server and wallet refreshed.");
+        } else {
+          const started = await nativeRequest("start",{stake,...(nativeGame==="mines"?{mineCount:mines}:{})},true);
+          if (nativeGame==="sweet-bonanza") {
+            const spun = await nativeRequest("spin",{roundId:started.round.roundId});
+            setMessage(Number(spun.round?.multiplier)>0?"Spin settled. Server-confirmed payout credited.":"Spin settled by the server.");
+            setHistory(old=>[Number(spun.round?.multiplier??0).toFixed(2)+"×",...old].slice(0,8));
+          } else {
+            setSelected(started.round?.selectedTiles??[]);
+            setMessage(nativeGame==="aviator"?"Bet accepted. Flight is live; cash out before the crash.":"Mines round started. Reveal safe tiles, then cash out.");
+          }
+        }
+      } else {
+        const response=await fetch("/api/bets/place",{method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify({gameId:game.slug,action,stake:stakeValue,currency:"BDT",options:{mines,rows,risk,targetMultiplier:Number(target),autoCashout:Number(autoCashout),selectedTiles:selected}})});
+        const payload=await response.json().catch(()=>({}));
+        if(!response.ok)throw new Error(payload.error||"The server did not accept this game action.");
+        if(typeof payload.balance==="number")setBalance(payload.balance);
+        if(typeof payload.multiplier==="number")setHistory(old=>[payload.multiplier.toFixed(2)+"×",...old].slice(0,8));
+        setMessage(payload.message||"Server accepted the action.");
+      }
       setRoundState("started");
-      setMessage(payload.message || "Server accepted the action. Displayed balance and result must come from the server response.");
-    } catch (error) {
-      setRoundState("idle");
-      setMessage(error instanceof Error ? error.message : "Unable to reach the game server. No client-side payout was applied.");
+    } catch(error) {
+      setRoundState(activeRound?.status==="active"?"started":"idle");
+      setMessage(error instanceof Error?error.message:"Unable to reach the game server.");
     }
   }
-
+  async function revealTile(tile:number) {
+    if(!activeRound?.roundId||activeRound.status!=="active"||roundState==="sending")return;
+    setRoundState("sending");
+    try {
+      const result=await nativeRequest("reveal",{roundId:activeRound.roundId,tile});
+      setSelected(result.round?.selectedTiles??[]);
+      setMessage(result.hitMine?"Mine hit. Server settled this round as a loss.":"Safe tile! Reveal another or cash out.");
+      setRoundState("started");
+    } catch(error) {setMessage(error instanceof Error?error.message:"Unable to reveal tile.");setRoundState("started");}
+  }
+  useEffect(()=>{
+    if(nativeGame!=="aviator"||activeRound?.status!=="active"||!activeRound?.roundId)return;
+    let stopped=false;
+    const poll=async()=>{
+      try{
+        const response=await fetch("/api/games/round",{method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify({action:"status",game:nativeGame,roundId:activeRound.roundId})});
+        const payload=await response.json();
+        if(!stopped&&response.ok&&payload.round){
+          setActiveRound(payload.round);
+          if(payload.round.status!=="active"){
+            setMessage("Round ended. Result confirmed by the server.");
+            setHistory(old=>[Number(payload.round.finalMultiplier??payload.round.multiplier??1).toFixed(2)+"×",...old].slice(0,8));
+          }
+        }
+      }catch{/* retry on next tick */}
+    };
+    const timer=window.setInterval(poll,400);void poll();
+    return()=>{stopped=true;window.clearInterval(timer);};
+  },[nativeGame,activeRound?.roundId,activeRound?.status]);
   return <section className="vs-game-screen">
     <div className="vs-game-top"><button className="vs-crumb" onClick={() => go("/games")}>← All games</button><span className="vs-category">{game.family}</span></div>
     {isPortrait && <div className="vs-rotate-overlay" role="status" aria-live="polite">
@@ -163,12 +210,12 @@ function GameScreen({ game, go }: { game: Game; go: (path: string) => void }) {
       <section className="vs-stage" style={{ "--accent": game.accent } as CSSProperties}>
         <div className="vs-stage-head"><div><span className="vs-category">VIVOSPIN GAME</span><h1>{game.name}</h1></div><span className="vs-stage-pill"><i /> SERVER-SETTLED</span></div>
         <div className={"vs-stage-art vs-stage-" + game.kind}>
-          {isCrash && <><div className="vs-flight-line" /><div className="vs-flight-rocket">➤</div><div className="vs-multiplier">1.00<span>×</span></div><div className="vs-stage-caption">FLIGHT READY</div></>}
+          {isCrash && <><div className="vs-flight-line" /><div className="vs-flight-rocket">➤</div><div className="vs-multiplier">{activeRound?.status === "active" ? Number(activeRound.multiplier ?? 1).toFixed(2) : activeRound?.finalMultiplier ? Number(activeRound.finalMultiplier).toFixed(2) : "1.00"}<span>×</span></div><div className="vs-stage-caption">{activeRound?.status === "active" ? "LIVE SERVER ROUND" : activeRound?.status ? "ROUND " + String(activeRound.status).toUpperCase() : "FLIGHT READY"}</div></>}
           {isSpace && <><div className="vs-space-stars">✦　·　✧　 ·　✦　　·　✧</div><div className="vs-space-planet" /><div className="vs-space-person">♙</div><div className="vs-multiplier">{target}<span>×</span></div><div className="vs-stage-caption">TARGET MULTIPLIER</div></>}
-          {isMines && <div className="vs-tile-board">{Array.from({ length: 25 }, (_, i) => <button key={i} className={selected.includes(i) ? "picked" : ""} onClick={() => setSelected(old => old.includes(i) ? old.filter(n => n !== i) : [...old, i])} aria-label={"Select tile " + (i + 1)}>{selected.includes(i) ? "✦" : <span>＋</span>}</button>)}</div>}
+          {isMines && <div className="vs-tile-board">{Array.from({ length: 25 }, (_, i) => <button key={i} className={(activeRound?.selectedTiles ?? selected).includes(i) ? "picked" : ""} disabled={isNativeGame && (roundState === "sending" || (activeRound && activeRound.status !== "active"))} onClick={() => isNativeGame && activeRound?.status === "active" ? revealTile(i) : setSelected(old => old.includes(i) ? old.filter(n => n !== i) : [...old, i])} aria-label={"Reveal tile " + (i + 1)}>{(activeRound?.selectedTiles ?? selected).includes(i) ? "✦" : (activeRound?.revealedTiles ?? []).includes(i) ? "✹" : <span>＋</span>}</button>)}</div>}
           {isPlinko && <div className="vs-plinko-board">{Array.from({ length: rows }, (_, r) => <div key={r} className="vs-peg-row">{Array.from({ length: r + 3 }, (_, c) => <i key={c} />)}</div>)}<div className="vs-plinko-slots">{["0.5×", "0.8×", "1.2×", "2×", "5×", "2×", "1.2×", "0.8×", "0.5×"].map((v, i) => <span key={i}>{v}</span>)}</div></div>}
           {isDice && <div className="vs-dice-scene"><div className="vs-die">⚄</div><div className="vs-die die-two">⚂</div><p>MAKE YOUR PREDICTION</p></div>}
-          {isSlots && <div className="vs-reel-grid">{Array.from({ length: 30 }, (_, i) => <div key={i} className={"vs-reel-symbol sym-" + (i % 6)}>{["✦", "🍬", "7", "✿", "◆", "🍋"][(i * 7 + Math.floor(i / 3)) % 6]}</div>)}</div>}
+          {isSlots && <div className="vs-reel-grid">{Array.from({ length: 30 }, (_, i) => <div key={i} className={"vs-reel-symbol sym-" + (i % 6) + (activeRound?.grid?.length ? " vs-slot-settled" : "")}>{activeRound?.grid?.[i] ?? ["✦", "🍬", "7", "✿", "◆", "🍋"][(i * 7 + Math.floor(i / 3)) % 6]}</div>)}</div>}
         </div>
         <div className="vs-history"><span>ROUND HISTORY</span><div>{history.map((item, i) => <b key={i} className={i === 0 ? "fresh" : ""}>{item}</b>)}</div></div>
       </section>
@@ -182,11 +229,11 @@ function GameScreen({ game, go }: { game: Game; go: (path: string) => void }) {
         {isCrash && <><label className="vs-field-label" htmlFor="vs-auto">Auto cashout (×)</label><input className="vs-text-input" id="vs-auto" type="number" min="1.01" step=".01" value={autoCashout} onChange={e => setAutoCashout(e.target.value)} /><label className="vs-check"><input type="checkbox" defaultChecked /> Enable auto cashout</label></>}
         {isDice && <><label className="vs-field-label">Prediction</label><div className="vs-segment">{["Under 7", "Exactly 7", "Over 7"].map(x => <button key={x} onClick={() => setTarget(x)} className={target === x ? "active" : ""}>{x}</button>)}</div></>}
         {isSlots && <><label className="vs-field-label">Spin settings</label><div className="vs-segment"><button className="active">Single spin</button><button onClick={() => setMessage("Auto-spin requires server-side limits and stop conditions before it can be enabled.")}>Auto-spin</button></div></>}
-        {!isCrash && <button className="vs-primary" disabled={!canSubmit} onClick={() => play(isMines ? "start-round" : isPlinko ? "drop-ball" : isDice ? "roll-dice" : isSlots ? "spin" : "play-round")}>{roundState === "sending" ? "CONNECTING…" : isMines ? "START ROUND" : isPlinko ? "DROP BALL" : isDice ? "ROLL DICE" : isSlots ? "SPIN" : "PLAY ROUND"}</button>}
-        <button className="vs-secondary" disabled={!canSubmit} onClick={() => play("cashout")}>CASH OUT / COLLECT</button>
+        {!isCrash && <button className="vs-primary" disabled={!canSubmit || (isNativeGame && nativeGame === "mines" && activeRound?.status === "active")} onClick={() => play(isMines ? "start-round" : isPlinko ? "drop-ball" : isDice ? "roll-dice" : isSlots ? "spin" : "play-round")}>{roundState === "sending" ? "CONNECTING…" : isMines && activeRound?.status === "active" ? "ROUND ACTIVE" : isMines ? "START ROUND" : isPlinko ? "DROP BALL" : isDice ? "ROLL DICE" : isSlots ? "SPIN & SETTLE" : "PLAY ROUND"}</button>}
+        <button className="vs-secondary" disabled={!canSubmit || (isNativeGame && (nativeGame === "sweet-bonanza" || activeRound?.status !== "active"))} onClick={() => play("cashout")}>{nativeGame === "aviator" && activeRound?.status === "active" ? "CASH OUT NOW" : "CASH OUT / COLLECT"}</button>
         <div className="vs-message" role="status">{message}</div>
         <div className="vs-balance"><span>Server balance</span><strong>{balance === null ? "—" : "৳" + fmt(balance)}</strong></div>
-        <p className="vs-safety-note">No browser-generated win or payout is trusted. Bet actions require a compatible server endpoint, authenticated session, and server-side wallet settlement.</p>
+        <p className="vs-safety-note">{isNativeGame ? "Round outcomes, stake debits and payouts are processed on the server. Sign in with a configured account and wallet to play." : "Bet actions require a compatible server endpoint, authenticated session, and server-side wallet settlement."}</p>
       </aside>
     </div>
   </section>;
@@ -211,4 +258,6 @@ const styles = `
 .vs-play-layout.slots-layout{grid-template-columns:minmax(205px,27vw) minmax(0,1fr)}.vs-play-layout.slots-layout .vs-controls{order:0}.vs-play-layout.slots-layout .vs-stage{order:1}.vs-play-layout.slots-layout .vs-reel-grid{width:min(100%,min(72vh,570px))}
 }
 @media (orientation:landscape) and (max-width:620px){.vs-play-layout.crash-layout{grid-template-columns:105px minmax(0,1fr) 175px}.vs-crash-stats{padding:8px}.vs-play-layout.mines-layout{grid-template-columns:minmax(0,1fr) 190px}.vs-play-layout.slots-layout{grid-template-columns:175px minmax(0,1fr)}}
+.vs-reel-symbol{transition:transform .18s,filter .18s}.vs-slot-settled{animation:vs-slot-pop .42s cubic-bezier(.2,.8,.2,1) both;filter:drop-shadow(0 0 8px #ff8fbd66)}@keyframes vs-slot-pop{0%{transform:scale(.7) rotate(-8deg);opacity:.55}70%{transform:scale(1.08)}100%{transform:scale(1);opacity:1}}.vs-flight-line{animation:vs-flight-draw 2.8s ease-in-out infinite alternate}@keyframes vs-flight-draw{from{transform:rotate(-24deg) translateY(90px)}to{transform:rotate(-24deg) translateY(-20px)}}.vs-tile-board button:disabled{cursor:default;opacity:.8}
+
 `;
