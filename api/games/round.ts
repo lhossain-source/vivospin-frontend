@@ -133,13 +133,14 @@ export default async function handler(req:any,res:any){
     }
     if(action==="current"){
       const active=await client.query("SELECT * FROM game_rounds WHERE user_id=$1 AND game_type=$2 AND status='active' ORDER BY created_at DESC LIMIT 1 FOR UPDATE",[userId,game]);
-      if(!active.rowCount){await client.query("COMMIT");return res.status(200).json({round:null});}
+      const wallet=await client.query("SELECT balance_minor::text AS balance_minor,currency FROM wallet_accounts WHERE user_id=$1",[userId]);
+      if(!active.rowCount){await client.query("COMMIT");return res.status(200).json({round:null,wallet:wallet.rowCount?{balanceMinor:wallet.rows[0].balance_minor,currency:wallet.rows[0].currency}:null});}
       const row=active.rows[0],now=Date.now();
       if(row.game_type==="aviator"&&now>=Number(row.state.crashAt)){
         const updated=await settle(client,row,0n,"lost",{...row.state,finalMultiplier:row.state.crashAtMultiplier});
-        await client.query("COMMIT");return res.status(200).json({round:publicRound(updated)});
+        await client.query("COMMIT");return res.status(200).json({round:publicRound(updated),wallet:wallet.rowCount?{balanceMinor:wallet.rows[0].balance_minor,currency:wallet.rows[0].currency}:null});
       }
-      await client.query("COMMIT");return res.status(200).json({round:publicRound(row)});
+      await client.query("COMMIT");return res.status(200).json({round:publicRound(row),wallet:wallet.rowCount?{balanceMinor:wallet.rows[0].balance_minor,currency:wallet.rows[0].currency}:null});
     }
     if(action==="status"){
       const row=await getRound(client,userId,body.roundId);
