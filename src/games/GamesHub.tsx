@@ -106,7 +106,7 @@ function GameScreen({ game, go }: { game: Game; go: (path: string) => void }) {
       try { orientation?.unlock?.(); } catch {}
     };
   }, []);
-  const [history, setHistory] = useState<string[]>(["1.42×", "2.16×", "1.08×", "4.75×", "1.31×"]);
+  const [history, setHistory] = useState<string[]>([]);
   const stakeValue = Number(stake);
   const canSubmit = Number.isFinite(stakeValue) && stakeValue > 0 && roundState !== "sending";
   const isMines = game.kind === "mines";
@@ -217,7 +217,7 @@ function GameScreen({ game, go }: { game: Game; go: (path: string) => void }) {
           {isDice && <div className="vs-dice-scene"><div className="vs-die">⚄</div><div className="vs-die die-two">⚂</div><p>MAKE YOUR PREDICTION</p></div>}
           {isSlots && <div className="vs-reel-grid">{Array.from({ length: 30 }, (_, i) => <div key={i} className={"vs-reel-symbol sym-" + (i % 6) + (activeRound?.grid?.length ? " vs-slot-settled" : "")}>{activeRound?.grid?.[i] ?? ["✦", "🍬", "7", "✿", "◆", "🍋"][(i * 7 + Math.floor(i / 3)) % 6]}</div>)}</div>}
         </div>
-        <div className="vs-history"><span>ROUND HISTORY</span><div>{history.map((item, i) => <b key={i} className={i === 0 ? "fresh" : ""}>{item}</b>)}</div></div>
+        <div className="vs-history"><span>ROUND HISTORY</span><div>{history.length ? history.map((item, i) => <b key={i} className={i === 0 ? "fresh" : ""}>{item}</b>) : <span className="vs-empty-history">No completed rounds in this session yet</span>}</div></div>
       </section>
       <aside className="vs-controls">
         <div className="vs-control-heading"><h2>Place your bet</h2><span className="vs-wallet-label">WALLET</span></div>
