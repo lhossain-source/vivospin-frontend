@@ -106,7 +106,7 @@ export default async function handler(req:any,res:any){
       if(!wallet.rowCount) throw fail(404,"Wallet not found. Ask support to initialize your account.");
       const before=BigInt(wallet.rows[0].balance_minor);if(before<amount) throw fail(409,"Insufficient wallet balance.");
       const id=randomUUID(),now=Date.now();let state:any={};
-      if(game==="aviator"){state={startedAt:now,crashAt:now+Math.max(1,Math.log(crashMultiplier())*10000),crashAtMultiplier:crashMultiplier(),history:[]};state.crashAt=now+Math.max(1,Math.log(state.crashAtMultiplier)*10000);}
+      if(game==="aviator"){const crashAtMultiplier=crashMultiplier();state={startedAt:now,crashAt:now+Math.max(1,Math.log(crashAtMultiplier)*10000),crashAtMultiplier,history:[]};}
       if(game==="mines"){const count=Number(body.mineCount??3);if(!Number.isInteger(count)||count<1||count>24) throw fail(400,"mineCount must be between 1 and 24.");state={mineCount:count,mines:chooseMines(count),selectedTiles:[],revealedTiles:[]};}
       const created=await client.query("INSERT INTO game_rounds(id,user_id,game_type,stake_minor,currency,status,state,payout_minor,idempotency_key) VALUES($1,$2,$3,$4::bigint,$5,'active',$6::jsonb,0,$7) RETURNING *",
         [id,userId,game,amount.toString(),wallet.rows[0].currency,JSON.stringify(state),key]);
