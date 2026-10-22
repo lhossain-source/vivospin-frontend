@@ -32,6 +32,25 @@ Example body:
 
 This endpoint is intended to be called by a trusted settlement worker after independently grading an event. It is not intended for the browser.
 
+## Native game engine (Aviator, Mines, Sweet Bonanza)
+
+The native game round API is `POST /api/games/round` and requires the existing authenticated user JWT in `Authorization: Bearer <user-access-token>`. It uses PostgreSQL transactions and the authenticated user's existing BDT wallet; it never trusts a client-provided outcome, multiplier, mine layout, balance, or payout.
+
+Before testing, apply both migrations with a database migration/admin role:
+
+1. `db/migrations/001_wallet_ledger.sql`
+2. `db/migrations/002_native_games.sql`
+
+Supported actions:
+
+- Start any of the three games: `{"action":"start","game":"aviator|mines|sweet-bonanza","stake":"10"}`; Mines may also pass `"mineCount":3`. Include an `Idempotency-Key` header (8–128 chars).
+- Poll Aviator: `{"action":"status","game":"aviator","roundId":"<round UUID>"}`. The server calculates the multiplier from server time and settles a crash on status/cashout requests.
+- Cash out Aviator or Mines: `{"action":"cashout","game":"aviator|mines","roundId":"<round UUID>"}`.
+- Reveal a Mines tile: `{"action":"reveal","game":"mines","roundId":"<round UUID>","tile":0}` where tile is 0–24.
+- Resolve a Sweet Bonanza spin: after start, call `{"action":"spin","game":"sweet-bonanza","roundId":"<round UUID>"}`. The server generates a 6×5 symbol grid and runs up to five cluster-pay tumble steps.
+
+Stake debits, round creation, payouts, and ledger records are written transactionally. Apply the migration before routing traffic; otherwise requests will return a configuration/database error. An authenticated user must already have a wallet account with currency `BDT` and sufficient funds. This implementation is an original game-engine baseline, not a certified copy of another operator's game or a provably-fair/audited RNG system. The sample slot paytable and crash distribution require independent mathematical, security, and regulatory review before any real-money production use. Run typecheck/build, integration tests against a test database, concurrency/idempotency tests, and a preview play-through before production deployment.
+
 ## Database setup
 
 1. Provision PostgreSQL.
