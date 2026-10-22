@@ -100,7 +100,7 @@ function GameScreen({ game, go }: { game: Game; go: (path: string) => void }) {
     const updateOrientation = () => setIsPortrait(window.matchMedia("(orientation: portrait)").matches);
     window.addEventListener("resize", updateOrientation);
     window.addEventListener("orientationchange", updateOrientation);
-    const orientation = window.screen?.orientation;
+    const orientation: any = window.screen?.orientation;
     if (orientation && typeof orientation.lock === "function") orientation.lock("landscape").catch(() => {});
     return () => {
       window.removeEventListener("resize", updateOrientation);
