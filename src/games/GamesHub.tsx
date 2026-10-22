@@ -182,7 +182,9 @@ function GameScreen({ game, go }: { game: Game; go: (path: string) => void }) {
     void fetch("/api/games/round",{method:"POST",headers:{"Content-Type":"application/json",...(accessToken.trim()?{Authorization:`Bearer ${accessToken.trim()}`}:{})},credentials:"same-origin",body:JSON.stringify({action:"current",game:nativeGame})})
       .then(async response=>({response,payload:await response.json().catch(()=>({}))}))
       .then(({response,payload})=>{
-        if(stopped||!response.ok||!payload.round)return;
+        if(stopped||!response.ok)return;
+        if(payload.wallet?.balanceMinor!==undefined)setBalance(Number(payload.wallet.balanceMinor)/100);
+        if(!payload.round)return;
         setActiveRound(payload.round);
         setSelected(payload.round.selectedTiles??[]);
         setRoundState("started");
