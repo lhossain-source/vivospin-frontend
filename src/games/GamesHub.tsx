@@ -94,6 +94,7 @@ function GameScreen({ game, go }: { game: Game; go: (path: string) => void }) {
   const [message, setMessage] = useState("Connect the server game endpoint to enable wallet-backed play.");
   const [balance, setBalance] = useState<number | null>(null);
   const [activeRound, setActiveRound] = useState<any>(null);
+  const [accessToken, setAccessToken] = useState(() => sessionStorage.getItem("vivospin_access_token") ?? "");
   const [isPortrait, setIsPortrait] = useState(() => window.matchMedia("(orientation: portrait)").matches);
   useEffect(() => {
     const updateOrientation = () => setIsPortrait(window.matchMedia("(orientation: portrait)").matches);
@@ -122,6 +123,7 @@ function GameScreen({ game, go }: { game: Game; go: (path: string) => void }) {
   const nativeGame = game.slug as "aviator" | "mines" | "sweet-bonanza";
   async function nativeRequest(action: string, extras: Record<string, unknown> = {}, idempotency = false) {
     const headers: Record<string,string> = { "Content-Type": "application/json" };
+    if (accessToken.trim()) headers.Authorization = `Bearer ${accessToken.trim()}`;
     if (idempotency) headers["Idempotency-Key"] = globalThis.crypto?.randomUUID?.() ?? ("vivo-" + Date.now() + "-" + Math.random().toString(36).slice(2));
     const response = await fetch("/api/games/round", { method:"POST", headers, credentials:"same-origin", body:JSON.stringify({action,game:nativeGame,...extras}) });
     const payload = await response.json().catch(() => ({}));
@@ -177,7 +179,7 @@ function GameScreen({ game, go }: { game: Game; go: (path: string) => void }) {
   useEffect(()=>{
     if(!isNativeGame)return;
     let stopped=false;
-    void fetch("/api/games/round",{method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify({action:"current",game:nativeGame})})
+    void fetch("/api/games/round",{method:"POST",headers:{"Content-Type":"application/json",...(accessToken.trim()?{Authorization:`Bearer ${accessToken.trim()}`}:{})},credentials:"same-origin",body:JSON.stringify({action:"current",game:nativeGame})})
       .then(async response=>({response,payload:await response.json().catch(()=>({}))}))
       .then(({response,payload})=>{
         if(stopped||!response.ok||!payload.round)return;
@@ -186,13 +188,13 @@ function GameScreen({ game, go }: { game: Game; go: (path: string) => void }) {
         setRoundState("started");
       }).catch(()=>{});
     return()=>{stopped=true;};
-  },[nativeGame,isNativeGame]);
+  },[nativeGame,isNativeGame,accessToken]);
   useEffect(()=>{
     if(nativeGame!=="aviator"||activeRound?.status!=="active"||!activeRound?.roundId)return;
     let stopped=false;
     const poll=async()=>{
       try{
-        const response=await fetch("/api/games/round",{method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify({action:"status",game:nativeGame,roundId:activeRound.roundId})});
+        const response=await fetch("/api/games/round",{method:"POST",headers:{"Content-Type":"application/json",...(accessToken.trim()?{Authorization:`Bearer ${accessToken.trim()}`}:{})},credentials:"same-origin",body:JSON.stringify({action:"status",game:nativeGame,roundId:activeRound.roundId})});
         const payload=await response.json();
         if(!stopped&&response.ok&&payload.round){
           setActiveRound(payload.round);
@@ -206,7 +208,7 @@ function GameScreen({ game, go }: { game: Game; go: (path: string) => void }) {
     };
     const timer=window.setInterval(poll,400);void poll();
     return()=>{stopped=true;window.clearInterval(timer);};
-  },[nativeGame,activeRound?.roundId,activeRound?.status]);
+  },[nativeGame,activeRound?.roundId,activeRound?.status,accessToken]);
   return <section className="vs-game-screen">
     <div className="vs-game-top"><button className="vs-crumb" onClick={() => go("/games")}>← All games</button><span className="vs-category">{game.family}</span></div>
     {isPortrait && <div className="vs-rotate-overlay" role="status" aria-live="polite">
@@ -236,6 +238,7 @@ function GameScreen({ game, go }: { game: Game; go: (path: string) => void }) {
       </section>
       <aside className="vs-controls">
         <div className="vs-control-heading"><h2>Place your bet</h2><span className="vs-wallet-label">WALLET</span></div>
+        {!accessToken && <><label className="vs-field-label" htmlFor="vs-account-token">Account access token</label><input className="vs-text-input" id="vs-account-token" type="password" autoComplete="off" value={accessToken} onChange={e => { setAccessToken(e.target.value); if (e.target.value.trim()) sessionStorage.setItem("vivospin_access_token", e.target.value.trim()); else sessionStorage.removeItem("vivospin_access_token"); }} placeholder="Paste signed-in account token" /><p className="vs-helper">Use the access token from your VivoSpin account. Stored for this browser tab session only.</p></>}
         <label className="vs-field-label" htmlFor="vs-stake">Bet amount (BDT)</label>
         <div className="vs-stake-control"><input id="vs-stake" inputMode="decimal" value={stake} onChange={e => setStake(e.target.value)} /><div><button onClick={() => setStake(String(Math.max(1, stakeValue / 2)))}>½</button><button onClick={() => setStake(String(stakeValue * 2))}>2×</button></div></div>
         {isMines && <><label className="vs-field-label" htmlFor="vs-mines">Number of mines: {mines}</label><input className="vs-range" id="vs-mines" type="range" min="1" max="24" value={mines} onChange={e => setMines(Number(e.target.value))} /><p className="vs-helper">Tiles selected: {selected.length} · Display multiplier: {multiplier}× (preview only)</p></>}
