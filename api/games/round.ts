@@ -118,6 +118,7 @@ export default async function handler(req:any,res:any){
       if(active.rowCount) throw fail(409,"Finish or cash out your active round first.");
       const wallet=await client.query("SELECT balance_minor::text AS balance_minor,currency FROM wallet_accounts WHERE user_id=$1 FOR UPDATE",[userId]);
       if(!wallet.rowCount) throw fail(404,"Wallet not found. Ask support to initialize your account.");
+      if(String(wallet.rows[0].currency).trim()!=="BDT") throw fail(409,"Native games currently require a BDT wallet.");
       const before=BigInt(wallet.rows[0].balance_minor);if(before<amount) throw fail(409,"Insufficient wallet balance.");
       const id=randomUUID(),now=Date.now();let state:any={};
       if(game==="aviator"){const crashAtMultiplier=crashMultiplier();state={startedAt:now,crashAt:now+Math.max(1,Math.log(crashAtMultiplier)*10000),crashAtMultiplier,history:[]};}
@@ -180,7 +181,7 @@ export default async function handler(req:any,res:any){
     }
     throw fail(400,"Unknown game action.");
   }catch(error){if(client){try{await client.query("ROLLBACK");}catch{}}
-    const status=Number((error as any)?.statusCode)||500;if(status>=500)console.error("native game API error",error);
+    const status=Number((error as any)?.statusCode)||((error as any)?.code==="23505"?409:500);if(status>=500)console.error("native game API error",error);
     return res.status(status).json({error:status===500?"Native game service unavailable; verify database migration and server configuration.":(error as Error).message});
   }finally{client?.release();}
 }
