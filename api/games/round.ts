@@ -121,7 +121,7 @@ export default async function handler(req:any,res:any){
       if(String(wallet.rows[0].currency).trim()!=="BDT") throw fail(409,"Native games currently require a BDT wallet.");
       const before=BigInt(wallet.rows[0].balance_minor);if(before<amount) throw fail(409,"Insufficient wallet balance.");
       const id=randomUUID(),now=Date.now();let state:any={};
-      if(game==="aviator"){const crashAtMultiplier=crashMultiplier();state={startedAt:now,crashAt:now+Math.max(1,Math.log(crashAtMultiplier)*10000),crashAtMultiplier,history:[]};}
+      if(game==="aviator"){const crashAtMultiplier=crashMultiplier();const auto=Number(body.autoCashout);state={startedAt:now,crashAt:now+Math.max(1,Math.log(crashAtMultiplier)*10000),crashAtMultiplier,autoCashout:Number.isFinite(auto)&&auto>=1.01&&auto<=1000?auto:null,history:[]};}
       if(game==="mines"){const count=Number(body.mineCount??3);if(!Number.isInteger(count)||count<1||count>24) throw fail(400,"mineCount must be between 1 and 24.");state={mineCount:count,mines:chooseMines(count),selectedTiles:[],revealedTiles:[]};}
       const created=await client.query("INSERT INTO game_rounds(id,user_id,game_type,stake_minor,currency,status,state,payout_minor,idempotency_key) VALUES($1,$2,$3,$4::bigint,$5,'active',$6::jsonb,0,$7) RETURNING *",
         [id,userId,game,amount.toString(),wallet.rows[0].currency,JSON.stringify(state),key]);
@@ -131,11 +131,31 @@ export default async function handler(req:any,res:any){
         [userId,(-amount).toString(),(before-amount).toString(),wallet.rows[0].currency,id,"game-bet:"+id,JSON.stringify({game})]);
       await client.query("COMMIT");return res.status(201).json({round:publicRound(created.rows[0]),wallet:{balanceMinor:(before-amount).toString(),currency:wallet.rows[0].currency}});
     }
+    if(action==="current"){
+      const active=await client.query("SELECT * FROM game_rounds WHERE user_id=$1 AND game_type=$2 AND status='active' ORDER BY created_at DESC LIMIT 1 FOR UPDATE",[userId,game]);
+      if(!active.rowCount){await client.query("COMMIT");return res.status(200).json({round:null});}
+      const row=active.rows[0],now=Date.now();
+      if(row.game_type==="aviator"&&now>=Number(row.state.crashAt)){
+        const updated=await settle(client,row,0n,"lost",{...row.state,finalMultiplier:row.state.crashAtMultiplier});
+        await client.query("COMMIT");return res.status(200).json({round:publicRound(updated)});
+      }
+      await client.query("COMMIT");return res.status(200).json({round:publicRound(row)});
+    }
     if(action==="status"){
       const row=await getRound(client,userId,body.roundId);
-      if(row.status==="active"&&row.game_type==="aviator"&&Date.now()>=Number(row.state.crashAt)){
-        const state={...row.state,finalMultiplier:row.state.crashAtMultiplier};
-        const updated=await settle(client,row,0n,"lost",state);await client.query("COMMIT");return res.status(200).json({round:publicRound(updated)});
+      if(row.status==="active"&&row.game_type==="aviator"){
+        const now=Date.now(),state={...row.state},crashAt=Number(state.crashAt),current=multiplierAt(Number(state.startedAt),now);
+        if(now>=crashAt){
+          state.finalMultiplier=state.crashAtMultiplier;
+          const updated=await settle(client,row,0n,"lost",state);await client.query("COMMIT");return res.status(200).json({round:publicRound(updated)});
+        }
+        if(Number(state.autoCashout)>=1.01&&current>=Number(state.autoCashout)){
+          state.finalMultiplier=Math.min(current,Number(state.crashAtMultiplier));
+          const payout=mulMinor(BigInt(row.stake_minor),state.finalMultiplier);
+          const updated=await settle(client,row,payout,"cashed_out",state);
+          const wallet=await client.query("SELECT balance_minor::text AS balance_minor,currency FROM wallet_accounts WHERE user_id=$1",[userId]);
+          await client.query("COMMIT");return res.status(200).json({round:publicRound(updated),wallet:{balanceMinor:wallet.rows[0].balance_minor,currency:wallet.rows[0].currency},autoCashedOut:true});
+        }
       }
       await client.query("COMMIT");return res.status(200).json({round:publicRound(row)});
     }
