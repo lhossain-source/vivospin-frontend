@@ -88,6 +88,7 @@ function GameScreen({ game, go }: { game: Game; go: (path: string) => void }) {
   const [risk, setRisk] = useState("Medium");
   const [target, setTarget] = useState("2.00");
   const [autoCashout, setAutoCashout] = useState("2.00");
+  const [autoCashoutEnabled, setAutoCashoutEnabled] = useState(true);
   const [selected, setSelected] = useState<number[]>([]);
   const [roundState, setRoundState] = useState<"idle" | "sending" | "started">("idle");
   const [message, setMessage] = useState("Connect the server game endpoint to enable wallet-backed play.");
@@ -139,7 +140,7 @@ function GameScreen({ game, go }: { game: Game; go: (path: string) => void }) {
           const result = await nativeRequest("cashout",{roundId:activeRound.roundId});
           setMessage(result.round?.status==="lost"?"The crash occurred before cashout; the server settled the loss.":"Round settled by the server and wallet refreshed.");
         } else {
-          const started = await nativeRequest("start",{stake,...(nativeGame==="mines"?{mineCount:mines}:{})},true);
+          const started = nativeGame==="sweet-bonanza" && activeRound?.status==="active" ? {round:activeRound} : await nativeRequest("start",{stake,...(nativeGame==="mines"?{mineCount:mines}:{}),...(nativeGame==="aviator"&&autoCashoutEnabled?{autoCashout:Number(autoCashout)}:{})},true);
           if (nativeGame==="sweet-bonanza") {
             const spun = await nativeRequest("spin",{roundId:started.round.roundId});
             setMessage(Number(spun.round?.multiplier)>0?"Spin settled. Server-confirmed payout credited.":"Spin settled by the server.");
@@ -174,6 +175,19 @@ function GameScreen({ game, go }: { game: Game; go: (path: string) => void }) {
     } catch(error) {setMessage(error instanceof Error?error.message:"Unable to reveal tile.");setRoundState("started");}
   }
   useEffect(()=>{
+    if(!isNativeGame)return;
+    let stopped=false;
+    void fetch("/api/games/round",{method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify({action:"current",game:nativeGame})})
+      .then(async response=>({response,payload:await response.json().catch(()=>({}))}))
+      .then(({response,payload})=>{
+        if(stopped||!response.ok||!payload.round)return;
+        setActiveRound(payload.round);
+        setSelected(payload.round.selectedTiles??[]);
+        setRoundState("started");
+      }).catch(()=>{});
+    return()=>{stopped=true;};
+  },[nativeGame,isNativeGame]);
+  useEffect(()=>{
     if(nativeGame!=="aviator"||activeRound?.status!=="active"||!activeRound?.roundId)return;
     let stopped=false;
     const poll=async()=>{
@@ -182,6 +196,7 @@ function GameScreen({ game, go }: { game: Game; go: (path: string) => void }) {
         const payload=await response.json();
         if(!stopped&&response.ok&&payload.round){
           setActiveRound(payload.round);
+          if(payload.wallet?.balanceMinor!==undefined)setBalance(Number(payload.wallet.balanceMinor)/100);
           if(payload.round.status!=="active"){
             setMessage("Round ended. Result confirmed by the server.");
             setHistory(old=>[Number(payload.round.finalMultiplier??payload.round.multiplier??1).toFixed(2)+"×",...old].slice(0,8));
@@ -226,7 +241,7 @@ function GameScreen({ game, go }: { game: Game; go: (path: string) => void }) {
         {isMines && <><label className="vs-field-label" htmlFor="vs-mines">Number of mines: {mines}</label><input className="vs-range" id="vs-mines" type="range" min="1" max="24" value={mines} onChange={e => setMines(Number(e.target.value))} /><p className="vs-helper">Tiles selected: {selected.length} · Display multiplier: {multiplier}× (preview only)</p></>}
         {isPlinko && <><label className="vs-field-label">Risk level</label><div className="vs-segment">{["Low", "Medium", "High"].map(x => <button className={risk === x ? "active" : ""} key={x} onClick={() => setRisk(x)}>{x}</button>)}</div><label className="vs-field-label" htmlFor="vs-rows">Pin rows: {rows}</label><input id="vs-rows" className="vs-range" type="range" min="8" max="16" value={rows} onChange={e => setRows(Number(e.target.value))} /></>}
         {isSpace && <><label className="vs-field-label" htmlFor="vs-target">Target multiplier</label><input className="vs-text-input" id="vs-target" type="number" min="1.01" step=".01" value={target} onChange={e => setTarget(e.target.value)} /></>}
-        {isCrash && <><label className="vs-field-label" htmlFor="vs-auto">Auto cashout (×)</label><input className="vs-text-input" id="vs-auto" type="number" min="1.01" step=".01" value={autoCashout} onChange={e => setAutoCashout(e.target.value)} /><label className="vs-check"><input type="checkbox" defaultChecked /> Enable auto cashout</label></>}
+        {isCrash && <><label className="vs-field-label" htmlFor="vs-auto">Auto cashout (×)</label><input className="vs-text-input" id="vs-auto" type="number" min="1.01" step=".01" value={autoCashout} onChange={e => setAutoCashout(e.target.value)} /><label className="vs-check"><input type="checkbox" checked={autoCashoutEnabled} onChange={e => setAutoCashoutEnabled(e.target.checked)} /> Enable auto cashout</label></>}
         {isDice && <><label className="vs-field-label">Prediction</label><div className="vs-segment">{["Under 7", "Exactly 7", "Over 7"].map(x => <button key={x} onClick={() => setTarget(x)} className={target === x ? "active" : ""}>{x}</button>)}</div></>}
         {isSlots && <><label className="vs-field-label">Spin settings</label><div className="vs-segment"><button className="active">Single spin</button><button onClick={() => setMessage("Auto-spin requires server-side limits and stop conditions before it can be enabled.")}>Auto-spin</button></div></>}
         {!isCrash && <button className="vs-primary" disabled={!canSubmit || (isNativeGame && nativeGame === "mines" && activeRound?.status === "active")} onClick={() => play(isMines ? "start-round" : isPlinko ? "drop-ball" : isDice ? "roll-dice" : isSlots ? "spin" : "play-round")}>{roundState === "sending" ? "CONNECTING…" : isMines && activeRound?.status === "active" ? "ROUND ACTIVE" : isMines ? "START ROUND" : isPlinko ? "DROP BALL" : isDice ? "ROLL DICE" : isSlots ? "SPIN & SETTLE" : "PLAY ROUND"}</button>}
