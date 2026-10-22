@@ -19,5 +19,7 @@ CREATE INDEX IF NOT EXISTS game_rounds_created_idx
   ON game_rounds(created_at DESC);
 
 -- Prevent simultaneous active rounds for the same user and game, including concurrent start requests.
-CREATE UNIQUE INDEX IF NOT EXISTS game_rounds_one_active_per_game_idx
-  ON game_rounds(user_id, game_type) WHERE status = 'active';
+DROP INDEX IF EXISTS game_rounds_one_active_per_game_idx;
+CREATE UNIQUE INDEX IF NOT EXISTS game_rounds_one_active_per_slot_idx
+  ON game_rounds(user_id, game_type, (COALESCE(state->>'slot','default')))
+  WHERE status = 'active';
