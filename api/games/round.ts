@@ -41,14 +41,28 @@ function minesMultiplier(mineCount:number, safeCount:number):number {
 }
 const symbols = ["🍬","🍋","🍇","🍉","🍓","🍭","⭐"];
 function slotSpin(stake:bigint) {
-  const grid = Array.from({length:30},()=>symbols[randomInt(0,symbols.length)]);
-  const counts = new Map<string,number>();
-  grid.forEach(s=>counts.set(s,(counts.get(s)??0)+1));
-  let multiplier=0;
-  for(const count of counts.values()) if(count>=8) multiplier=Math.max(multiplier,count>=12?8:count>=10?3:1.5);
-  // A small original, illustrative paytable; tune only with documented mathematical review before real-money launch.
-  const payout=mulMinor(stake,multiplier);
-  return {grid,multiplier,payout};
+  let grid = Array.from({length:30},()=>symbols[randomInt(0,symbols.length)]);
+  const cascadeGrids: string[][] = [];
+  let totalPayout = 0n;
+  // Original 6x5 cluster-pay cascade model: 8+ matching symbols anywhere pay; winning symbols tumble out and refill.
+  for(let step=0;step<5;step++){
+    const counts = new Map<string,number>();
+    grid.forEach(s=>counts.set(s,(counts.get(s)??0)+1));
+    const winners = new Set<string>();
+    let stepMultiplier=0;
+    for(const [symbol,count] of counts){
+      if(count<8)continue;
+      winners.add(symbol);
+      stepMultiplier += count>=12?5:count>=10?2:1;
+    }
+    if(!winners.size)break;
+    const stepPayout=mulMinor(stake,stepMultiplier);
+    totalPayout+=stepPayout;
+    if(totalPayout>MAX_MINOR)throw fail(422,"Spin payout exceeds database limits.");
+    grid=grid.map(s=>winners.has(s)?symbols[randomInt(0,symbols.length)]:s);
+    cascadeGrids.push([...grid]);
+  }
+  return {grid,cascadeGrids,multiplier:Number((Number(totalPayout)/Number(stake)).toFixed(4)),payout:totalPayout,cascades:cascadeGrids.length};
 }
 function publicRound(row:any, now=Date.now()) {
   const state = row.state ?? {};
@@ -57,8 +71,8 @@ function publicRound(row:any, now=Date.now()) {
     const current = row.status==="active" ? Math.min(Number(state.crashAtMultiplier),multiplierAt(Number(state.startedAt),now)) : Number(state.finalMultiplier??state.crashAtMultiplier??1);
     return {...base, multiplier:Math.floor(current*100)/100, history:state.history??[], canCashout:row.status==="active" && now < Number(state.crashAt), ...(row.status!=="active"?{finalMultiplier:state.finalMultiplier??state.crashAtMultiplier}: {})};
   }
-  if(row.game_type==="mines") return {...base, mineCount:Number(state.mineCount), selectedTiles:state.selectedTiles??[], safeCount:(state.selectedTiles??[]).length, multiplier:minesMultiplier(Number(state.mineCount), (state.selectedTiles??[]).length), revealedTiles:row.status==="lost"?(state.revealedTiles??[]):undefined};
-  return {...base, grid:state.grid??[], multiplier:Number(state.multiplier??0), cascades:Number(state.cascades??0)};
+  if(row.game_type==="mines") return {...base, mineCount:Number(state.mineCount), selectedTiles:state.selectedTiles??[], safeCount:(state.selectedTiles??[]).length, multiplier:minesMultiplier(Number(state.mineCount), (state.selectedTiles??[]).length), revealedTiles:row.status==="lost"?(state.revealedTiles??[]):undefined, revealedMines:row.status==="lost"?(state.mines??[]):undefined};
+  return {...base, grid:state.grid??[], cascadeGrids:state.cascadeGrids??[], multiplier:Number(state.multiplier??0), cascades:Number(state.cascades??0)};
 }
 async function getRound(client:any,userId:string,roundId:unknown) {
   if(typeof roundId!=="string"||!UUID.test(roundId)) throw fail(400,"roundId must be a valid UUID.");
@@ -159,7 +173,7 @@ export default async function handler(req:any,res:any){
       const row=await getRound(client,userId,body.roundId);
       if(row.game_type!=="sweet-bonanza"||row.status!=="active") throw fail(409,"No active Sweet Bonanza spin found.");
       const result=slotSpin(BigInt(row.stake_minor));
-      const state={...row.state,grid:result.grid,multiplier:result.multiplier,cascades:result.multiplier>0?randomInt(1,4):0};
+      const state={...row.state,grid:result.grid,cascadeGrids:result.cascadeGrids,multiplier:result.multiplier,cascades:result.cascades};
       const updated=await settle(client,row,result.payout,result.payout>0n?"won":"lost",state);
       const wallet=await client.query("SELECT balance_minor::text AS balance_minor,currency FROM wallet_accounts WHERE user_id=$1",[userId]);
       await client.query("COMMIT");return res.status(200).json({round:publicRound(updated),wallet:{balanceMinor:wallet.rows[0].balance_minor,currency:wallet.rows[0].currency}});
