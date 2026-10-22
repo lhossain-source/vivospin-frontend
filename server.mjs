@@ -53,6 +53,16 @@ app.all("/api/bets/place", async (req, res) => {
   }
 });
 
+app.all("/api/games/round", async (req, res) => {
+  try {
+    const { default: handler } = await import("./api/games/round.ts");
+    await handler(req, res);
+  } catch (error) {
+    console.error("native game API unavailable", error);
+    if (!res.headersSent) res.status(500).json({ error: "Native game API unavailable; check server and database configuration." });
+  }
+});
+
 app.all("/api/wallet", async (req, res) => {
   try {
     const { default: handler } = await import("./api/wallet.ts");
