@@ -174,7 +174,6 @@ function BetSlip({
   onClear: () => void;
 }) {
   const [stake, setStake] = useState("100");
-  const [accessToken, setAccessToken] = useState(() => sessionStorage.getItem("vivospin_access_token") ?? "");
   const [placing, setPlacing] = useState(false);
   const [placementMessage, setPlacementMessage] = useState("");
   const [placementError, setPlacementError] = useState("");
@@ -188,8 +187,9 @@ function BetSlip({
   async function placeBet() {
     setPlacementMessage("");
     setPlacementError("");
-    if (!accessToken.trim()) {
-      setPlacementError("Enter your account access token to authenticate this bet.");
+    const accessToken = sessionStorage.getItem("vivospin_access_token") ?? "";
+    if (!accessToken) {
+      setPlacementError("Sign in with SMS OTP before placing a bet.");
       return;
     }
     if (!selections.length || !validStake || stakeValue > 999999999.99 || Math.round(stakeValue * 100) / 100 !== stakeValue) {
@@ -198,7 +198,6 @@ function BetSlip({
     }
     setPlacing(true);
     try {
-      sessionStorage.setItem("vivospin_access_token", accessToken.trim());
       const requestBody = {
         stake: stakeValue.toFixed(2),
         selections: selections.map((selection) => ({
@@ -221,7 +220,7 @@ function BetSlip({
         headers: {
           "Content-Type": "application/json",
           Accept: "application/json",
-          Authorization: `Bearer ${accessToken.trim()}`,
+          Authorization: `Bearer ${accessToken}`,
           "Idempotency-Key": idempotencyAttempt.current.key,
         },
         body: JSON.stringify(requestBody),
@@ -231,6 +230,7 @@ function BetSlip({
       if (payload.wallet) setWalletBalance(payload.wallet);
       setPlacementMessage(`Bet accepted. Reference: ${payload.bet?.id ?? "confirmed"}. Wallet updated${payload.wallet ? `: ${(Number(payload.wallet.balanceMinor) / 100).toFixed(2)} ${payload.wallet.currency}` : ""}.`);
       idempotencyAttempt.current = null;
+      window.dispatchEvent(new Event("vivospin-wallet-refresh"));
       onClear();
     } catch (cause) {
       setPlacementError(cause instanceof Error ? cause.message : "Could not place bet.");
@@ -281,10 +281,7 @@ function BetSlip({
               onChange={(event) => setStake(event.target.value)} />
             <div className="summary-row"><span>Combined odds</span><strong>{combinedOdds.toFixed(2)}</strong></div>
             <div className="summary-row"><span>Illustrative return</span><strong>{potentialReturn.toFixed(2)}</strong></div>
-            <label htmlFor="access-token">Account access token</label>
-            <input id="access-token" type="password" autoComplete="off" value={accessToken}
-              onChange={(event) => setAccessToken(event.target.value)} placeholder="Paste your signed-in account token" />
-            <p className="demo-note">The server verifies your account and current odds, then debits the stake atomically. Do not place a wager unless you are legally permitted to do so.</p>
+            <p className="demo-note">Sign in with SMS OTP to place a virtual wager. The server verifies your account and current odds before attempting the wallet debit.</p>
             <button type="button" className="place-bet-button" onClick={placeBet}
               disabled={placing || selections.length === 0 || !validStake}>
               {placing ? "Verifying & placing…" : `Place bet · ${stakeValue.toFixed(2)}`}
