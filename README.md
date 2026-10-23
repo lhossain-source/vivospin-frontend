@@ -32,6 +32,60 @@ Example body:
 
 This endpoint is intended to be called by a trusted settlement worker after independently grading an event. It is not intended for the browser.
 
+## Native game engine (Aviator, Mines, Sweet Bonanza)
+
+The native game round API is `POST /api/games/round` and requires the existing authenticated user JWT in `Authorization: Bearer <user-access-token>`. It uses PostgreSQL transactions and the authenticated user's existing BDT wallet; it never trusts a client-provided outcome, multiplier, mine layout, balance, or payout.
+
+Before testing, apply both migrations with a database migration/admin role:
+
+1. `db/migrations/001_wallet_ledger.sql`
+2. `db/migrations/002_native_games.sql`
+
+Supported actions:
+
+- Start any of the three games: `{"action":"start","game":"aviator|mines|sweet-bonanza","stake":"10"}`; Mines may also pass `"mineCount":3`. Include an `Idempotency-Key` header (8–128 chars).
+- Poll Aviator: `{"action":"status","game":"aviator","roundId":"<round UUID>"}`. The server calculates the multiplier from server time and settles a crash on status/cashout requests.
+- Cash out Aviator or Mines: `{"action":"cashout","game":"aviator|mines","roundId":"<round UUID>"}`.
+- Reveal a Mines tile: `{"action":"reveal","game":"mines","roundId":"<round UUID>","tile":0}` where tile is 0–24.
+- Resolve a Sweet Bonanza spin: after start, call `{"action":"spin","game":"sweet-bonanza","roundId":"<round UUID>"}`. The server generates a 6×5 symbol grid and runs up to five cluster-pay tumble steps.
+
+Stake debits, round creation, payouts, and ledger records are written transactionally. Apply the migration before routing traffic; otherwise requests will return a configuration/database error. An authenticated user must already have a wallet account with currency `BDT` and sufficient funds. This implementation is an original game-engine baseline, not a certified copy of another operator's game or a provably-fair/audited RNG system. The sample slot paytable and crash distribution require independent mathematical, security, and regulatory review before any real-money production use. Run typecheck/build, integration tests against a test database, concurrency/idempotency tests, and a preview play-through before production deployment.
+
+
+## Market-parity implementation checklist (before production)
+
+This checklist distinguishes implemented scaffolding from features that still require verification. Do not describe the games as market-equivalent or production-ready until each relevant test passes.
+
+### Aviator
+- [x] Server generates a round outcome; server time controls the multiplier and crash.
+- [x] Cashout is settled in a database transaction with a wallet ledger entry.
+- [ ] Persist and display a real recent-round history; the current history field is empty scaffolding.
+- [ ] Add independent fairness review and a documented seed/commit/reveal design before using the term “provably fair”.
+- [ ] Test crash/cashout races, reconnects, clock boundaries, and duplicate requests under concurrent load.
+
+### Mines
+- [x] Server chooses mine positions; the client submits only a tile index.
+- [x] Safe reveals and cashout use server-held round state.
+- [ ] Add explicit settlement/reveal audit tests for every mine count (1–24), including last-safe-tile and cashout boundaries.
+- [ ] Test duplicate tile requests, simultaneous cashout/reveal, reconnect/resume, and payout rounding.
+
+### Sweet Bonanza
+- [x] Server generates a 6×5 grid and stores cascade states for a simple original cluster-pay model.
+- [ ] Define and mathematically review the paytable, hit rate, RTP/house edge, maximum exposure, and bonus/free-spin rules; current model is not feature-parity with the commercial title.
+- [ ] Test every payout boundary and maximum-cascade case; verify the UI renders each saved cascade and the final result.
+- [ ] Do not use commercial game branding/assets as a claim of affiliation or exact replication.
+
+### Shared release gates
+- [ ] Add automated integration tests with a disposable PostgreSQL database and real authenticated test users.
+- [ ] Verify migrations on a clean database and an existing database before deploying.
+- [ ] Test wallet balance/ledger invariants, idempotency, transaction rollback, and simultaneous requests.
+- [ ] Add rate limits, monitoring, alerting, audit logs, backup/recovery checks, and independent security review.
+- [ ] Test iOS Safari and Android browser layouts and interrupted-network recovery.
+- [ ] Run the production build/typecheck and confirm all CI checks are green.
+- [ ] Keep real-money functionality disabled until applicable licensing, age/identity checks, responsible-play controls, and legal review are complete.
+
+The current branch has the original game API baseline and a separate three-game lounge design. The list above is a release checklist, not evidence that unchecked items have been implemented or passed.
+
 ## Database setup
 
 1. Provision PostgreSQL.
